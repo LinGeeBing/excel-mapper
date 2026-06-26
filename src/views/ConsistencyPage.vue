@@ -1056,13 +1056,19 @@ const handleSourceUpload = (file) => {
 
   const reader = new FileReader()
   reader.onload = (e) => {
-    const data = e.target.result
-    const workbook = XLSX.read(data, { type: 'binary' })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+    try {
+      const data = e.target.result
+      const workbook = XLSX.read(data, { type: 'binary' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 })
 
-    sourceHeaders.value = aoa[0].map(v => String(v ?? ''))
-    sourceRows.value = aoa.slice(1).map(r => r.map(v => String(v ?? '')))
+      sourceHeaders.value = aoa[0].map(v => String(v ?? ''))
+      sourceRows.value = aoa.slice(1).map(r => r.map(v => String(v ?? '')))
+    } catch {
+      ElMessage.error('文件解析失败')
+      sourceHeaders.value = []
+      sourceRows.value = []
+    }
   }
   reader.readAsBinaryString(file.raw)
 }
