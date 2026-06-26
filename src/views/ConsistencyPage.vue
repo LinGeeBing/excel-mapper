@@ -112,7 +112,7 @@
     </el-dialog>
 
     <!-- 字段定义弹窗 -->
-    <el-dialog v-model="mappingDialogVisible" title="字段定义" width="850px">
+    <el-dialog v-model="mappingDialogVisible" title="字段定义" width="850px" :close-on-click-modal="false">
       <div style="margin-bottom: 16px; display: flex; align-items: center;">
         <span style="font-weight: bold; margin-right: 8px;">模板名称：</span>
         <el-input
@@ -203,7 +203,7 @@
     </el-dialog>
 
     <!-- 匹配字段管理弹窗 -->
-    <el-dialog v-model="matchDialogVisible" :title="matchDialogTitle" width="500px">
+    <el-dialog v-model="matchDialogVisible" :title="matchDialogTitle" width="500px" :close-on-click-modal="false">
       <div style="display: flex; gap: 8px; margin-bottom: 12px;">
         <el-input
           v-model="matchSearch"
@@ -263,10 +263,10 @@
     </el-dialog>
 
     <!-- 上传模板弹窗 -->
-    <el-dialog v-model="uploadDialogVisible" title="上传模板" width="500px">
+    <el-dialog v-model="uploadDialogVisible" title="上传模板" width="500px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="模板名称">
-          <el-input v-model="templateName" placeholder="例如：订单标准模板" />
+          <el-input v-model="templateName" placeholder="请输入模板名称" />
         </el-form-item>
 
         <el-form-item label="上传文件">
@@ -314,7 +314,7 @@
     </el-dialog>
 
     <!-- ===== 上传原表弹窗 ===== -->
-    <el-dialog v-model="sourceUploadVisible" title="上传原表" width="500px">
+    <el-dialog v-model="sourceUploadVisible" title="上传原表" width="500px" :close-on-click-modal="false">
       <el-form label-width="80px">
         <el-form-item label="原表名称">
           <el-input v-model="sourceTableName" placeholder="自动填入文件名" />
@@ -382,7 +382,7 @@
     </el-dialog>
 
     <!-- ===== 字段匹配弹窗 ===== -->
-    <el-dialog v-model="fieldMatchVisible" :title="sourceTableName || '字段匹配'" width="900px">
+    <el-dialog v-model="fieldMatchVisible" :title="sourceTableName || '字段匹配'" width="900px" :close-on-click-modal="false">
       <div style="margin-bottom: 12px; color: #909399; font-size: 13px;">
         ※ 表示必填字段，可直接输入常量（如“淘宝”）
       </div>
@@ -624,11 +624,19 @@ const handleEditTemplate = (row) => {
   templateName.value = row.name
   editingTemplateId.value = row.id
 
-  mappingFields.value = row.headers.map(h => ({
-    name: h || '',
-    required: row.requiredFields?.includes(h) || false,
-    matches: [h || '']
-  }))
+  // ✅ 如果已经有副本，只补 required
+  if (mappingFields.value.length) {
+    mappingFields.value.forEach(field => {
+      field.required = row.requiredFields?.includes(field.name) || false
+    })
+  } else {
+    // ✅ 第一次编辑，才初始化
+    mappingFields.value = row.headers.map(h => ({
+      name: h || '',
+      required: row.requiredFields?.includes(h) || false,
+      matches: []
+    }))
+  }
 
   editingFieldIndex.value = -1
   dialogVisible.value = false
@@ -724,7 +732,7 @@ const initMappingFields = () => {
   mappingFields.value = templateHeaders.value.map(h => ({
     name: h || '',
     required: false,
-    matches: [h || '']
+    matches: []
   }))
   editingFieldIndex.value = -1
 }
@@ -762,8 +770,16 @@ const enableTemplateDrag = () => {
       dragClass: 'sortable-drag',
       onEnd({ newIndex, oldIndex }) {
         if (newIndex === oldIndex) return
+        // ✅ 1. 先改内存顺序
         const curr = templates.value.splice(oldIndex, 1)[0]
         templates.value.splice(newIndex, 0, curr)
+
+        // ✅ 2. 立即写回持久化层
+        updateTemplate(curr.id, {
+          name: curr.name,
+          headers: curr.headers,
+          requiredFields: curr.requiredFields || []
+        })
       }
     })
   })
@@ -788,11 +804,12 @@ const confirmUpload = () => {
 
 const mappingDialogVisible = ref(false)
 
+/* ✅ ① 新建字段：matches 为空数组 */
 const addField = () => {
   mappingFields.value.push({
     name: '',
     required: false,
-    matches: ['']
+    matches: []
   })
   editField(mappingFields.value.length - 1)
 }
@@ -802,6 +819,35 @@ const editField = (idx) => {
 }
 
 const finishEdit = (idx) => {
+  const field = mappingFields.value[idx]
+  if (!field) return
+
+  const trimmedName = field.name?.trim()
+
+  // ✅ 新建字段：空 → 直接删除
+  if (!trimmedName && field.name === '') {
+    mappingFields.value.splice(idx, 1)
+    editingFieldIndex.value = -1
+    return
+  }
+
+  // ✅ 旧字段改成空：恢复原值（不改成空）
+  if (!trimmedName) {
+    editingFieldIndex.value = -1
+    return
+  }
+
+  // ✅ 正常保存
+  field.name = trimmedName
+  field.matches[0] = trimmedName
+
+  // ✅ 去重
+  for (let i = field.matches.length - 1; i >= 1; i--) {
+    if (field.matches[i] === field.matches[0]) {
+      field.matches.splice(i, 1)
+    }
+  }
+
   editingFieldIndex.value = -1
 }
 
@@ -831,10 +877,16 @@ const matchDialogTitle = computed(() => {
   return currentMatchField.value?.name || '匹配字段'
 })
 
+/* ✅ ③ 打开匹配库：若为空，自动补一个和字段名一致的匹配字段 */
 const openMatchDialog = (row) => {
   currentMatchField.value = row
   matchSearch.value = ''
   editingMatchIndex.value = -1
+
+  if (row.matches.length === 0 && row.name?.trim()) {
+    row.matches = [row.name.trim()]
+  }
+
   tempMatches.value = row.matches.map(m => ({ value: m }))
   matchDialogVisible.value = true
 }
@@ -872,6 +924,7 @@ const addMatchField = () => {
   editMatch(tempMatches.value.length - 1)
 }
 
+/* ✅ ④ 确定后，用 tempMatches 覆盖当前字段的 matches（仅改副本） */
 const saveMatches = () => {
   const values = tempMatches.value.map(m => m.value.trim())
 
@@ -896,7 +949,7 @@ const saveMatches = () => {
   matchDialogVisible.value = false
 }
 
-/* ===== 保存模板 ===== */
+/* ===== 保存模板（唯一落地点） ===== */
 const saveTemplateFromMapping = async () => {
   const name = templateName.value.trim()
   if (!name) {
@@ -933,14 +986,6 @@ const saveTemplateFromMapping = async () => {
     } catch {
       return
     }
-  }
-
-  const isDuplicate = templates.value.some(
-    t => t.name === name && t.id !== editingTemplateId.value
-  )
-  if (isDuplicate) {
-    ElMessage.warning('模板名称已存在')
-    return
   }
 
   const requiredFields = mappingFields.value
