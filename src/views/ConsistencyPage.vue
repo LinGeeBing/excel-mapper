@@ -624,11 +624,21 @@ const handleEditTemplate = (row) => {
   templateName.value = row.name
   editingTemplateId.value = row.id
 
-  mappingFields.value = row.headers.map(h => ({
-    name: h || '',
-    required: row.requiredFields?.includes(h) || false,
-    matches: [h || '']
-  }))
+  // ✅ 优先使用已保存的 fields（包含 matches）
+  if (row.fields?.length) {
+    mappingFields.value = row.fields.map(f => ({
+      name: f.name,
+      required: f.required,
+      matches: f.matches
+    }))
+  } else {
+    // ✅ 老模板兜底
+    mappingFields.value = row.headers.map(h => ({
+      name: h || '',
+      required: row.requiredFields?.includes(h) || false,
+      matches: [h || '']
+    }))
+  }
 
   editingFieldIndex.value = -1
   dialogVisible.value = false
@@ -794,7 +804,7 @@ const addField = () => {
   mappingFields.value.push({
     name: '',
     required: false,
-    matches: ['']
+    matches: []   // ✅ 空数组，由后续逻辑补全
   })
   editField(mappingFields.value.length - 1)
 }
@@ -804,6 +814,41 @@ const editField = (idx) => {
 }
 
 const finishEdit = (idx) => {
+  const field = mappingFields.value[idx]
+  if (!field) return
+
+  const trimmedName = field.name?.trim()
+
+  // 新建字段为空 → 删除
+  if (!trimmedName && field.name === '') {
+    mappingFields.value.splice(idx, 1)
+    editingFieldIndex.value = -1
+    return
+  }
+
+  // 旧字段改成空 → 还原
+  if (!trimmedName) {
+    editingFieldIndex.value = -1
+    return
+  }
+
+  // ✅ 字段名确定
+  field.name = trimmedName
+
+  // ✅ 强制同步 matches（关键）
+  if (!field.matches || field.matches.length === 0) {
+    field.matches = [trimmedName]
+  } else {
+    field.matches[0] = trimmedName
+  }
+
+  // ✅ 清理重复
+  for (let i = field.matches.length - 1; i >= 1; i--) {
+    if (field.matches[i] === field.matches[0]) {
+      field.matches.splice(i, 1)
+    }
+  }
+
   editingFieldIndex.value = -1
 }
 
@@ -952,7 +997,12 @@ const saveTemplateFromMapping = async () => {
   const payload = {
     name,
     headers: fieldNames,
-    requiredFields
+    requiredFields,
+    fields: mappingFields.value.map(f => ({
+      name: f.name,
+      required: f.required,
+      matches: f.matches
+    }))
   }
 
   if (editingTemplateId.value) {
