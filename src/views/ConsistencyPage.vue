@@ -112,7 +112,7 @@
     </el-dialog>
 
     <!-- 字段定义弹窗 -->
-    <el-dialog v-model="mappingDialogVisible" title="字段定义" width="850px" :close-on-click-modal="false">
+    <el-dialog v-model="mappingDialogVisible" title="字段定义" width="850px">
       <div style="margin-bottom: 16px; display: flex; align-items: center;">
         <span style="font-weight: bold; margin-right: 8px;">模板名称：</span>
         <el-input
@@ -203,7 +203,7 @@
     </el-dialog>
 
     <!-- 匹配字段管理弹窗 -->
-    <el-dialog v-model="matchDialogVisible" :title="matchDialogTitle" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="matchDialogVisible" :title="matchDialogTitle" width="500px">
       <div style="display: flex; gap: 8px; margin-bottom: 12px;">
         <el-input
           v-model="matchSearch"
@@ -263,10 +263,10 @@
     </el-dialog>
 
     <!-- 上传模板弹窗 -->
-    <el-dialog v-model="uploadDialogVisible" title="上传模板" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="uploadDialogVisible" title="上传模板" width="500px">
       <el-form label-width="80px">
         <el-form-item label="模板名称">
-          <el-input v-model="templateName" placeholder="请输入模板名称" />
+          <el-input v-model="templateName" placeholder="例如：订单标准模板" />
         </el-form-item>
 
         <el-form-item label="上传文件">
@@ -314,7 +314,7 @@
     </el-dialog>
 
     <!-- ===== 上传原表弹窗 ===== -->
-    <el-dialog v-model="sourceUploadVisible" title="上传原表" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="sourceUploadVisible" title="上传原表" width="500px">
       <el-form label-width="80px">
         <el-form-item label="原表名称">
           <el-input v-model="sourceTableName" placeholder="自动填入文件名" />
@@ -381,93 +381,85 @@
       </template>
     </el-dialog>
 
-    <!-- ===== 字段匹配弹窗 ===== -->
-    <el-dialog v-model="fieldMatchVisible" :title="sourceTableName || '字段匹配'" width="900px" :close-on-click-modal="false">
-      <div style="margin-bottom: 12px; color: #909399; font-size: 13px;">
-        ※ 表示必填字段，可直接输入常量（如“淘宝”）
+    <!-- ===== 字段匹配弹窗（✅ Teleport 修复版） ===== -->
+    <el-dialog v-model="fieldMatchVisible" :title="sourceTableName || '字段匹配'" width="900px">
+      <div class="fm-tip">
+        ※ 必填字段 &nbsp;|&nbsp; 可直接输入常量，也可点击下拉选择原表字段
       </div>
 
       <el-table :data="fieldMatchList" border height="420">
-        <el-table-column label="序号" width="80" align="center">
+        <el-table-column label="序号" width="70" align="center">
           <template #default="{ $index }">
             {{ $index + 1 }}
           </template>
         </el-table-column>
 
-        <!-- 必填字段显示 ※字段名（红色） -->
-        <el-table-column label="模板字段" width="220">
+        <el-table-column label="模板字段" width="200">
           <template #default="{ row }">
-            <span
-              v-if="row.required"
-              style="color: #f56c6c; font-weight: bold;"
-            >
+            <span v-if="row.required" class="fm-required">
               ※{{ row.templateField }}
             </span>
             <span v-else>{{ row.templateField }}</span>
           </template>
         </el-table-column>
 
-        <!-- ✅ 原表字段：输入框占满单元格 -->
-        <el-table-column label="原表字段">
-          <template #default="{ row }">
+        <!-- ✅ 原表字段：智能输入框（Teleport 方案） -->
+        <el-table-column label="原表字段" min-width="300">
+          <template #default="{ row, $index }">
             <div
-              @click="startEditSource(row)"
-              style="width: 100%; min-height: 36px; display: flex; align-items: center; cursor: text;"
+              class="fm-smart-input"
+              :ref="el => setSmartInputRef(el, $index)"
             >
-              <!-- 非编辑状态 -->
-              <div
-                v-if="editingSourceRow !== row"
-                style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; width: 100%;"
+              <el-input
+                v-model="row.sourceValue"
+                placeholder="输入常量或选择字段"
+                size="small"
               >
-                <el-tag
-                  v-for="(f, i) in row.sourceFields"
-                  :key="i"
-                  type="info"
-                  closable
-                  @close="removeSourceField(row, i)"
-                  style="margin: 2px;"
-                >
-                  {{ f }}
-                </el-tag>
-                <span v-if="!row.sourceFields.length" style="color: #c0c4cc; font-size: 13px;">
-                  点击输入或选择字段
-                </span>
-              </div>
+                <template #suffix>
+                  <el-icon
+                    class="fm-dropdown-arrow"
+                    :class="{ 'is-active': row._dropdownOpen }"
+                    @mousedown.prevent
+                    @click="toggleDropdown(row)"
+                  >
+                    <ArrowDown />
+                  </el-icon>
+                </template>
+              </el-input>
 
-              <!-- ✅ 编辑状态：输入框 + 下拉 -->
-              <div
-                v-else
-                style="display: flex; align-items: center; width: 100%; gap: 8px;"
-              >
-                <!-- ✅ 主输入框：输入常量 -->
-                <el-input
-                  v-model="row._inputText"
-                  placeholder="可直接输入常量，如：淘宝"
-                  size="small"
-                  style="flex: 1;"
-                  @keyup.enter="applyInput(row)"
-                  @blur="applyInput(row)"
-                  v-focus
-                />
-
-                <!-- ✅ 下拉：只用于选择原表字段 -->
-                <el-select
-                  v-model="row._selectFields"
-                  multiple
-                  filterable
-                  placeholder="选择字段"
-                  size="small"
-                  style="width: 200px;"
-                  @change="onSelectChange(row, $event)"
+              <!-- ✅ Teleport 到 body，彻底解决被遮挡问题 -->
+              <Teleport to="body">
+                <div
+                  v-show="row._dropdownOpen"
+                  class="fm-dropdown-panel"
+                  :style="getDropdownStyle($index)"
                 >
-                  <el-option
-                    v-for="h in sourceHeaders"
-                    :key="h"
-                    :label="h"
-                    :value="h"
-                  />
-                </el-select>
-              </div>
+                  <div class="fm-dropdown-search">
+                    <el-input
+                      v-model="row._searchText"
+                      placeholder="搜索原表字段"
+                      size="small"
+                      clearable
+                    />
+                  </div>
+                  <div class="fm-dropdown-list">
+                    <div
+                      v-for="f in filteredSourceFields(row)"
+                      :key="f"
+                      class="fm-dropdown-item"
+                      :class="{ 'is-selected': row.sourceValue.includes(`{${f}}`) }"
+                      @mousedown.prevent
+                      @click="toggleField(row, f)"
+                    >
+                      <el-icon v-if="row.sourceValue.includes(`{${f}}`)" color="#409EFF" size="14"><Check /></el-icon>
+                      <span>{{ f }}</span>
+                    </div>
+                    <div v-if="filteredSourceFields(row).length === 0" class="fm-dropdown-empty">
+                      无匹配字段
+                    </div>
+                  </div>
+                </div>
+              </Teleport>
             </div>
           </template>
         </el-table-column>
@@ -517,7 +509,6 @@
         </el-button>
       </div>
 
-      <!-- 原表处理记录表格 -->
       <el-table
         :data="filteredSourceTableData"
         border
@@ -551,9 +542,17 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled, Check, Document, Close, Delete, Edit } from '@element-plus/icons-vue'
+import {
+  UploadFilled,
+  Check,
+  Document,
+  Close,
+  Delete,
+  Edit,
+  ArrowDown
+} from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
 import * as XLSX from 'xlsx'
 import { useTemplateManager } from '../composables/useTemplateManager'
@@ -564,10 +563,11 @@ const {
   selectTemplate,
   addTemplate,
   deleteTemplate,
-  updateTemplate
+  updateTemplate,
+  saveAllTemplates
 } = useTemplateManager()
 
-/* ===== 原有状态 ===== */
+/* ===== 基础状态 ===== */
 const dialogVisible = ref(false)
 const uploadDialogVisible = ref(false)
 const uploadRef = ref(null)
@@ -588,7 +588,7 @@ const onTemplateSelect = (id) => {
   selectTemplate(id)
 }
 
-/* ===== 原有方法 ===== */
+/* ===== 模板库 ===== */
 const openCustomTemplate = () => {
   templateName.value = ''
   mappingFields.value = []
@@ -624,19 +624,11 @@ const handleEditTemplate = (row) => {
   templateName.value = row.name
   editingTemplateId.value = row.id
 
-  // ✅ 如果已经有副本，只补 required
-  if (mappingFields.value.length) {
-    mappingFields.value.forEach(field => {
-      field.required = row.requiredFields?.includes(field.name) || false
-    })
-  } else {
-    // ✅ 第一次编辑，才初始化
-    mappingFields.value = row.headers.map(h => ({
-      name: h || '',
-      required: row.requiredFields?.includes(h) || false,
-      matches: []
-    }))
-  }
+  mappingFields.value = row.headers.map(h => ({
+    name: h || '',
+    required: row.requiredFields?.includes(h) || false,
+    matches: [h || '']
+  }))
 
   editingFieldIndex.value = -1
   dialogVisible.value = false
@@ -703,6 +695,7 @@ const openPreviewDialog = () => {
 
 const previewDialogVisible = ref(false)
 
+/* ===== 字段定义 ===== */
 const mappingFields = ref([])
 const editingFieldIndex = ref(-1)
 
@@ -732,7 +725,7 @@ const initMappingFields = () => {
   mappingFields.value = templateHeaders.value.map(h => ({
     name: h || '',
     required: false,
-    matches: []
+    matches: [h || '']
   }))
   editingFieldIndex.value = -1
 }
@@ -770,16 +763,9 @@ const enableTemplateDrag = () => {
       dragClass: 'sortable-drag',
       onEnd({ newIndex, oldIndex }) {
         if (newIndex === oldIndex) return
-        // ✅ 1. 先改内存顺序
         const curr = templates.value.splice(oldIndex, 1)[0]
         templates.value.splice(newIndex, 0, curr)
-
-        // ✅ 2. 立即写回持久化层
-        updateTemplate(curr.id, {
-          name: curr.name,
-          headers: curr.headers,
-          requiredFields: curr.requiredFields || []
-        })
+        saveAllTemplates()
       }
     })
   })
@@ -804,12 +790,11 @@ const confirmUpload = () => {
 
 const mappingDialogVisible = ref(false)
 
-/* ✅ ① 新建字段：matches 为空数组 */
 const addField = () => {
   mappingFields.value.push({
     name: '',
     required: false,
-    matches: []
+    matches: ['']
   })
   editField(mappingFields.value.length - 1)
 }
@@ -819,35 +804,6 @@ const editField = (idx) => {
 }
 
 const finishEdit = (idx) => {
-  const field = mappingFields.value[idx]
-  if (!field) return
-
-  const trimmedName = field.name?.trim()
-
-  // ✅ 新建字段：空 → 直接删除
-  if (!trimmedName && field.name === '') {
-    mappingFields.value.splice(idx, 1)
-    editingFieldIndex.value = -1
-    return
-  }
-
-  // ✅ 旧字段改成空：恢复原值（不改成空）
-  if (!trimmedName) {
-    editingFieldIndex.value = -1
-    return
-  }
-
-  // ✅ 正常保存
-  field.name = trimmedName
-  field.matches[0] = trimmedName
-
-  // ✅ 去重
-  for (let i = field.matches.length - 1; i >= 1; i--) {
-    if (field.matches[i] === field.matches[0]) {
-      field.matches.splice(i, 1)
-    }
-  }
-
   editingFieldIndex.value = -1
 }
 
@@ -877,16 +833,10 @@ const matchDialogTitle = computed(() => {
   return currentMatchField.value?.name || '匹配字段'
 })
 
-/* ✅ ③ 打开匹配库：若为空，自动补一个和字段名一致的匹配字段 */
 const openMatchDialog = (row) => {
   currentMatchField.value = row
   matchSearch.value = ''
   editingMatchIndex.value = -1
-
-  if (row.matches.length === 0 && row.name?.trim()) {
-    row.matches = [row.name.trim()]
-  }
-
   tempMatches.value = row.matches.map(m => ({ value: m }))
   matchDialogVisible.value = true
 }
@@ -924,7 +874,6 @@ const addMatchField = () => {
   editMatch(tempMatches.value.length - 1)
 }
 
-/* ✅ ④ 确定后，用 tempMatches 覆盖当前字段的 matches（仅改副本） */
 const saveMatches = () => {
   const values = tempMatches.value.map(m => m.value.trim())
 
@@ -949,7 +898,7 @@ const saveMatches = () => {
   matchDialogVisible.value = false
 }
 
-/* ===== 保存模板（唯一落地点） ===== */
+/* ===== 保存模板 ===== */
 const saveTemplateFromMapping = async () => {
   const name = templateName.value.trim()
   if (!name) {
@@ -988,6 +937,14 @@ const saveTemplateFromMapping = async () => {
     }
   }
 
+  const isDuplicate = templates.value.some(
+    t => t.name === name && t.id !== editingTemplateId.value
+  )
+  if (isDuplicate) {
+    ElMessage.warning('模板名称已存在')
+    return
+  }
+
   const requiredFields = mappingFields.value
     .filter(f => f.required)
     .map(f => f.name)
@@ -1023,7 +980,6 @@ const sourceUploadRef = ref(null)
 const sourcePreviewVisible = ref(false)
 const fieldMatchVisible = ref(false)
 const fieldMatchList = ref([])
-const editingSourceRow = ref(null)
 
 const sourceTableData = ref([])
 const selectedSourceRecords = ref([])
@@ -1056,19 +1012,13 @@ const handleSourceUpload = (file) => {
 
   const reader = new FileReader()
   reader.onload = (e) => {
-    try {
-      const data = e.target.result
-      const workbook = XLSX.read(data, { type: 'binary' })
-      const sheet = workbook.Sheets[workbook.SheetNames[0]]
-      const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+    const data = e.target.result
+    const workbook = XLSX.read(data, { type: 'binary' })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 })
 
-      sourceHeaders.value = aoa[0].map(v => String(v ?? ''))
-      sourceRows.value = aoa.slice(1).map(r => r.map(v => String(v ?? '')))
-    } catch {
-      ElMessage.error('文件解析失败')
-      sourceHeaders.value = []
-      sourceRows.value = []
-    }
+    sourceHeaders.value = aoa[0].map(v => String(v ?? ''))
+    sourceRows.value = aoa.slice(1).map(r => r.map(v => String(v ?? '')))
   }
   reader.readAsBinaryString(file.raw)
 }
@@ -1097,41 +1047,87 @@ const openFieldMatchDialog = () => {
   fieldMatchList.value = activeTemplate.value.headers.map(h => ({
     templateField: h,
     required: activeTemplate.value.requiredFields?.includes(h) || false,
-    sourceFields: [],
-    _inputText: '',
-    _selectFields: []
+    sourceValue: '',
+    _dropdownOpen: false,
+    _searchText: ''
   }))
 
   sourceUploadVisible.value = false
   fieldMatchVisible.value = true
 }
 
-/* ✅ 单击进入编辑 */
-const startEditSource = (row) => {
-  editingSourceRow.value = row
-}
+/* ✅ Teleport 相关逻辑 */
+const smartInputRefs = ref([])
 
-/* ✅ 下拉选择字段 */
-const onSelectChange = (row, values) => {
-  row._selectFields = values
-  row.sourceFields = [...values]
-}
-
-/* ✅ 输入常量 */
-const applyInput = (row) => {
-  const text = row._inputText?.trim()
-  if (text) {
-    row.sourceFields = [text]
+const setSmartInputRef = (el, index) => {
+  if (el) {
+    smartInputRefs.value[index] = el
   }
-  editingSourceRow.value = null
 }
 
-/* ✅ 删除字段 */
-const removeSourceField = (row, index) => {
-  row.sourceFields.splice(index, 1)
-  row._selectFields = [...row.sourceFields]
-  row._inputText = ''
+const getDropdownStyle = (index) => {
+  const el = smartInputRefs.value[index]
+  if (!el) return { display: 'none' }
+
+  const rect = el.getBoundingClientRect()
+  return {
+    position: 'fixed',
+    top: (rect.bottom + 4) + 'px',
+    left: rect.left + 'px',
+    width: rect.width + 'px',
+    zIndex: 9999
+  }
 }
+
+/* ✅ 下拉相关 */
+const toggleDropdown = (row) => {
+  // 关闭其他所有下拉
+  fieldMatchList.value.forEach(r => {
+    if (r !== row) r._dropdownOpen = false
+  })
+  row._dropdownOpen = !row._dropdownOpen
+}
+
+const filteredSourceFields = (row) => {
+  const search = (row._searchText || '').toLowerCase()
+  return sourceHeaders.value.filter(h =>
+    !search || h.toLowerCase().includes(search)
+  )
+}
+
+const toggleField = (row, field) => {
+  const placeholder = `{${field}}`
+  if (row.sourceValue.includes(placeholder)) {
+    row.sourceValue = row.sourceValue
+      .replace(placeholder, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  } else {
+    if (row.sourceValue && !row.sourceValue.endsWith(' ')) {
+      row.sourceValue += ' '
+    }
+    row.sourceValue += placeholder
+  }
+}
+
+/* ✅ 点击空白区域关闭下拉 */
+const handleClickOutside = (e) => {
+  const target = e.target
+  // 如果点击的不是下拉面板也不是输入框
+  if (!target.closest('.fm-smart-input') && !target.closest('.fm-dropdown-panel')) {
+    fieldMatchList.value.forEach(r => {
+      r._dropdownOpen = false
+    })
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 
 /* ✅ 取消 */
 const cancelFieldMatch = () => {
@@ -1142,7 +1138,7 @@ const cancelFieldMatch = () => {
 /* ✅ 确认字段匹配 */
 const confirmFieldMatch = () => {
   const miss = fieldMatchList.value.find(
-    f => f.required && f.sourceFields.length === 0
+    f => f.required && !f.sourceValue?.trim()
   )
 
   if (miss) {
@@ -1174,27 +1170,22 @@ const generateMappedData = () => {
   for (const srcRow of sourceRows.value) {
     const newRow = []
     for (const field of fieldMatchList.value) {
-      if (field.sourceFields.length === 0) {
+      const val = (field.sourceValue || '').trim()
+      if (!val) {
         newRow.push('')
-      } else if (field.sourceFields.length === 1) {
-        const val = field.sourceFields[0]
-        if (sourceHeaders.value.includes(val)) {
-          const colIdx = sourceHeaders.value.indexOf(val)
-          newRow.push(colIdx >= 0 ? srcRow[colIdx] : '')
-        } else {
-          newRow.push(val)
-        }
-      } else {
-        const values = field.sourceFields.map(sf => {
-          if (sourceHeaders.value.includes(sf)) {
-            const colIdx = sourceHeaders.value.indexOf(sf)
-            return colIdx >= 0 ? (srcRow[colIdx] || '') : ''
-          } else {
-            return sf
-          }
-        })
-        newRow.push(values.join(' & '))
+        continue
       }
+
+      const resolved = val.replace(/\{[^}]+\}/g, match => {
+        const name = match.slice(1, -1)
+        if (sourceHeaders.value.includes(name)) {
+          const idx = sourceHeaders.value.indexOf(name)
+          return idx >= 0 ? (srcRow[idx] ?? '') : ''
+        }
+        return match
+      })
+
+      newRow.push(resolved)
     }
     rows.push(newRow)
   }
@@ -1236,7 +1227,7 @@ const previewResult = (row) => {
   resultPreviewVisible.value = true
 }
 
-/* ✅ 导出（✅ Blob + a.click） */
+/* ✅ 导出 */
 const exportSingle = (row) => {
   try {
     const ws = XLSX.utils.aoa_to_sheet([
@@ -1264,7 +1255,7 @@ const exportSingle = (row) => {
   }
 }
 
-/* ✅ 编辑记录（✅ 完整回显） */
+/* ✅ 编辑记录（✅ 回显 sourceValue） */
 const editingRecord = ref(null)
 
 const editRecord = (row) => {
@@ -1274,27 +1265,28 @@ const editRecord = (row) => {
   fieldMatchList.value = row.result.headers.map((h, i) => ({
     templateField: h,
     required: activeTemplate.value?.requiredFields?.includes(h) || false,
-    sourceFields: [],
-    _inputText: '',
-    _selectFields: []
+    sourceValue: '',
+    _dropdownOpen: false,
+    _searchText: ''
   }))
 
-  const firstDataRow = row.result.rows[0] || []
+  const firstRow = row.result.rows[0] || []
   fieldMatchList.value.forEach((f, i) => {
-    const cellVal = firstDataRow[i] || ''
+    const cellVal = (firstRow[i] || '').toString().trim()
     if (!cellVal) return
 
-    if (cellVal.includes(' & ')) {
-      f.sourceFields = cellVal.split(' & ').map(s => s.trim())
-    } else {
-      f.sourceFields = [cellVal]
+    // 尝试回显字段
+    for (const srcField of sourceHeaders.value) {
+      const colIdx = sourceHeaders.value.indexOf(srcField)
+      const srcVal = sourceRows.value[0]?.[colIdx]
+      if (srcVal === cellVal) {
+        f.sourceValue = `{${srcField}}`
+        return
+      }
     }
 
-    if (!sourceHeaders.value.includes(f.sourceFields[0])) {
-      f._inputText = f.sourceFields[0]
-    } else {
-      f._selectFields = [...f.sourceFields]
-    }
+    // 否则当作常量
+    f.sourceValue = cellVal
   })
 
   fieldMatchVisible.value = true
@@ -1438,5 +1430,83 @@ const handleMergeTables = async () => {
 
 .consistency-page :deep(.sortable-drag) {
   opacity: 1 !important;
+}
+
+/* ===== 字段匹配样式 ===== */
+.fm-tip {
+  margin-bottom: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.fm-required {
+  color: #f56c6c;
+  font-weight: bold;
+}
+
+.fm-smart-input {
+  position: relative;
+  width: 100%;
+}
+
+.fm-dropdown-arrow {
+  cursor: pointer;
+  color: #c0c4cc;
+  transition: transform 0.2s;
+}
+
+.fm-dropdown-arrow.is-active {
+  transform: rotate(180deg);
+}
+
+/* ✅ Teleport 下拉面板 - 全局样式（不受 scoped 限制） */
+:global(.fm-dropdown-panel) {
+  position: fixed;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+:global(.fm-dropdown-search) {
+  padding: 8px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+:global(.fm-dropdown-list) {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+:global(.fm-dropdown-item) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+:global(.fm-dropdown-item:hover) {
+  background: #f5f7fa;
+}
+
+:global(.fm-dropdown-item.is-selected) {
+  color: #409EFF;
+  font-weight: 500;
+  background: #ecf5ff;
+}
+
+:global(.fm-dropdown-item.is-selected:hover) {
+  background: #d9ecff;
+}
+
+:global(.fm-dropdown-empty) {
+  padding: 12px;
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 13px;
 }
 </style>
