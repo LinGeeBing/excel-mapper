@@ -1,839 +1,624 @@
 <template>
-  <div class="page">
-    <!-- ==================== 第一步：上传文件 ==================== -->
-    <section class="section">
-      <h3>📁 第一步：上传商品文件</h3>
-      <div class="upload-area" @click="triggerUpload" @dragover.prevent @drop.prevent="handleDrop">
-        <input ref="fileInput" type="file" accept=".xlsx,.xls,.csv" hidden @change="handleFileChange" />
-        <div v-if="!fileName" class="upload-placeholder">
-          <p>点击或拖拽文件到此处上传</p>
-          <p class="tip">支持 .xlsx / .xls / .csv 格式</p>
-        </div>
-        <div v-else class="upload-info">
-          <p>✅ 已上传：<strong>{{ fileName }}</strong></p>
-          <button class="btn btn-sm btn-danger" @click.stop="clearFile">清除文件</button>
-        </div>
+  <div class="product-code-page">
+    <!-- ===== 模块一：上传文件 ===== -->
+    <el-card shadow="never" class="upload-card">
+      <div class="card-header">
+        <el-button type="primary" @click="openUploadDialog" :disabled="hasUploadedFile">
+          上传文件
+        </el-button>
       </div>
-    </section>
 
-    <!-- ==================== 第二步：映射商品信息字段 ==================== -->
-    <section v-if="headers.length" class="section">
-      <h3>🔗 第二步：映射商品信息字段</h3>
-      <p class="tip">选择哪些字段组合成「商品信息」（产品详情），系统将以此作为编码匹配的依据</p>
-      <div class="field-mapping">
-        <div v-for="(field, idx) in mappingFields" :key="idx" class="mapping-row">
-          <select v-model="field.source">
-            <option value="">-- 请选择字段 --</option>
-            <option v-for="h in headers" :key="h" :value="h">{{ h }}</option>
-          </select>
-          <span v-if="idx < mappingFields.length - 1" class="separator">+</span>
-          <button v-if="mappingFields.length < 5" class="btn btn-sm btn-outline" @click="addMappingField" style="margin-left:8px">+ 拼接更多字段</button>
-          <button v-if="mappingFields.length > 1" class="btn btn-sm btn-danger" @click="removeMappingField(idx)" style="margin-left:4px">删除</button>
-        </div>
-        <div class="preview">
-          <strong>预览（前3条）：</strong>
-          <div v-for="(row, i) in previewRows" :key="i" class="preview-row">
-            {{ row }}
+      <!-- 已上传文件展示区 -->
+      <div v-if="hasUploadedFile" class="uploaded-file-area">
+        <div class="file-item">
+          <div class="file-icon">
+            <el-icon><Document /></el-icon>
+          </div>
+          <div class="file-name">{{ fileName }}</div>
+          <div class="file-actions">
+            <el-icon class="delete-btn" @click="handleDeleteConfirm">
+              <Close />
+            </el-icon>
+            <el-button type="primary" link size="small" @click="previewFile">
+              预览
+            </el-button>
           </div>
         </div>
       </div>
-    </section>
+    </el-card>
 
-    <!-- ==================== 第三步：编码规则管理 ==================== -->
-    <section v-if="headers.length" class="section">
-      <h3>📋 第三步：管理编码规则</h3>
+    <!-- ===== 模块二：商品信息定义 ===== -->
+    <el-card shadow="never" style="margin-top: 20px;">
+      <template #header>
+        <span>📦 定义商品信息</span>
+      </template>
 
-      <!-- 规则表格 -->
-      <div class="rule-table-wrapper">
-        <table class="rule-table">
-          <thead>
-            <tr>
-              <th style="width:50px">序号</th>
-              <th style="width:40%">判断条件</th>
-              <th style="width:20%">商品编码</th>
-              <th style="width:80px">优先级</th>
-              <th style="width:120px">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(rule, idx) in rules" :key="rule.id">
-              <td class="center">{{ idx + 1 }}</td>
-              <td>{{ formatRuleCondition(rule) }}</td>
-              <td><strong>{{ rule.sku }}</strong></td>
-              <td class="center">{{ rule.priority }}</td>
-              <td class="center">
-                <button class="btn btn-sm btn-outline" @click="editRule(idx)">编辑</button>
-                <button class="btn btn-sm btn-danger" @click="deleteRule(idx)">删除</button>
-              </td>
-            </tr>
-            <tr v-if="!rules.length">
-              <td colspan="5" class="center tip">暂无编码规则，请点击下方按钮添加</td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- 字段选择区 -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+          <span style="font-weight: 500;">选择参与字段：</span>
+          <el-select
+            v-model="selectedField"
+            placeholder="请选择字段"
+            style="width: 220px;"
+            clearable
+            filterable
+            @change="addField"
+          >
+            <el-option
+              v-for="h in availableFields"
+              :key="h"
+              :label="h"
+              :value="h"
+            />
+          </el-select>
+        </div>
+
+        <!-- 已选字段列表（可拖拽排序） -->
+        <div v-if="selectedFields.length" class="selected-fields">
+          <!-- <div style="font-size: 13px; color: #909399; margin-bottom: 8px;">
+            拼接顺序（可拖拽调整）：
+          </div> -->
+          <div
+            v-for="(field, index) in selectedFields"
+            :key="field"
+            class="field-tag"
+            style="display: inline-flex; align-items: center; gap: 6px; margin: 4px;"
+          >
+            <el-tag
+              type="primary"
+              effect="plain"
+              style="cursor: grab; user-select: none;"
+              :data-field="field"
+            >
+              {{ index + 1 }}. {{ field }}
+            </el-tag>
+            <el-icon
+              style="cursor: pointer; color: #f56c6c;"
+              @click="removeField(index)"
+            >
+              <Close />
+            </el-icon>
+          </div>
+        </div>
+
+        <div v-else style="color: #c0c4cc; font-size: 13px;">
+          请至少选择一个字段
+        </div>
       </div>
 
       <!-- 操作按钮 -->
-      <div class="rule-actions">
-        <button class="btn btn-primary" @click="openConditionEditor">+ 新建编码条件</button>
+      <div style="display: flex; gap: 12px;">
+        <el-button
+          type="primary"
+          :disabled="selectedFields.length === 0"
+          @click="previewMapping"
+        >
+          预览商品信息
+        </el-button>
+        <el-button
+          type="success"
+          :disabled="selectedFields.length === 0"
+          @click="confirmMapping"
+        >
+          确认定义
+        </el-button>
       </div>
+    </el-card>
 
-      <!-- ========== 规则编辑弹窗 ========== -->
-      <div v-if="showRuleEditor" class="modal-overlay" @click.self="closeRuleEditor">
-        <div class="modal">
-          <h4>{{ editingIndex === -1 ? '新建编码条件' : '编辑编码条件' }}</h4>
-
-          <!-- 条件组 -->
-          <div class="condition-editor">
-            <div v-for="(cond, cIdx) in ruleForm.conditions" :key="cIdx" class="condition-row">
-              <select v-model="cond.type">
-                <option value="include">包含关键词</option>
-                <option value="exclude">不包含关键词</option>
-                <option value="color">颜色匹配</option>
-                <option value="model">型号匹配</option>
-              </select>
-
-              <input v-model="cond.value" :placeholder="placeholderText" />
-
-              <button class="btn btn-sm btn-danger" @click="removeCondition(cIdx)">×</button>
-
-              <div class="cond-tip">
-                <template v-if="cond.type === 'include'">✅ 商品信息中必须包含以上任一关键词</template>
-                <template v-else-if="cond.type === 'exclude'">🚫 商品信息中包含这些词 → 该规则不匹配（用于区分"非AI款"等）</template>
-                <template v-else-if="cond.type === 'color'">🎨 颜色过滤，多个用逗号分隔</template>
-                <template v-else-if="cond.type === 'model'">📐 型号/规格过滤，多个用逗号分隔</template>
+    <!-- ===== 上传文件弹窗 ===== -->
+    <el-dialog v-model="uploadVisible" title="上传商品原表" width="500px">
+      <el-form label-width="80px">
+        <el-form-item label="上传文件">
+          <el-upload
+            ref="uploadRef"
+            class="file-uploader"
+            drag
+            action="#"
+            :auto-upload="false"
+            :on-change="handleFileChange"
+            accept=".xlsx,.xls,.csv"
+            :limit="1"
+            :on-exceed="handleExceed"
+          >
+            <el-icon size="40"><UploadFilled /></el-icon>
+            <div class="el-upload__text">
+              将文件拖到此处，或 <em>点击选择</em>
+            </div>
+            <template #file="{ file }">
+              <div class="upload-file-preview">
+                <div class="file-info">
+                  <el-icon><Document /></el-icon>
+                  <span>{{ file.name }}</span>
+                </div>
+                <div class="file-actions">
+                  <el-icon style="cursor: pointer;" @click="removeFile">
+                    <Close />
+                  </el-icon>
+                  <el-button type="primary" link size="small" @click="previewFile">
+                    预览
+                  </el-button>
+                </div>
               </div>
-            </div>
+            </template>
+          </el-upload>
+        </el-form-item>
+      </el-form>
 
-            <button class="btn btn-sm btn-outline" @click="addCondition">+ 添加条件</button>
-          </div>
+      <template #footer>
+        <el-button @click="uploadVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="!rawRows.length"
+          @click="confirmUpload"
+        >
+          确定
+        </el-button>
+      </template>
+    </el-dialog>
 
-          <!-- 商品编码 -->
-          <div class="form-item">
-            <label>商品编码（SKU）</label>
-            <input v-model="ruleForm.sku" placeholder="如：SP01123" />
-            <span class="tip">匹配成功后，将把该编码写入商品信息中</span>
-          </div>
+    <!-- ===== 文件预览弹窗 ===== -->
+    <el-dialog v-model="previewVisible" title="文件预览" width="900px">
+    <el-table
+      :data="previewRows"
+      border
+      height="500"
+      style="width: 100%;"
+    >
+      <!-- ✅ 原表行号 -->
+      <el-table-column
+        label="序号"
+        width="70"
+        align="center"
+        fixed="left"
+      >
+        <template #default="{ $index }">
+          {{ $index + 1 }}
+        </template>
+      </el-table-column>
 
-          <!-- 优先级 -->
-          <div class="form-item">
-            <label>优先级（数字越小越先匹配）</label>
-            <input type="number" v-model.number="ruleForm.priority" />
-            <span class="tip">如：AI款耳机优先级 10，普通款耳机优先级 20</span>
-          </div>
+      <el-table-column
+        v-for="(col, index) in previewHeaders"
+        :key="index"
+        :label="col || `列${index + 1}`"
+      >
+        <template #default="{ row }">
+          {{ row[index] }}
+        </template>
+      </el-table-column>
+    </el-table>
 
-          <!-- 示例 -->
-          <div class="example-box">
-            <strong>📌 示例：如何表达"非AI款耳机"</strong>
-            <div class="example-content">
-              <div>条件1：包含关键词 → <code>耳机</code></div>
-              <div>条件2：不包含关键词 → <code>AI</code></div>
-              <div>商品编码：<code>SP01121</code></div>
-              <div class="example-note">💡 系统会先检查"包含耳机"，再排除"含AI"的商品</div>
-            </div>
-          </div>
+      <template #footer>
+        <el-button @click="previewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
-          <div class="modal-actions">
-            <button class="btn btn-outline" @click="closeRuleEditor">取消</button>
-            <button class="btn btn-primary" @click="saveRule">保存</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== 第四步：匹配 & 导出 ==================== -->
-    <section v-if="headers.length && rules.length" class="section">
-      <h3>🚀 第四步：执行编码匹配</h3>
-
-      <button class="btn btn-primary btn-lg" @click="runMatch" :disabled="matching">
-        {{ matching ? '正在匹配...' : '开始匹配并生成文件' }}
-      </button>
-
-      <div v-if="matchResult" class="match-result">
-        <div class="result-summary">
-          <div class="result-item">
-            <span class="label">总商品数</span>
-            <span class="value">{{ matchResult.total }}</span>
-          </div>
-          <div class="result-item success">
-            <span class="label">匹配成功</span>
-            <span class="value">{{ matchResult.matched }}</span>
-          </div>
-          <div class="result-item warning">
-            <span class="label">未匹配</span>
-            <span class="value">{{ matchResult.unmatched }}</span>
-          </div>
-        </div>
-
-        <div v-if="matchResult.unmatchedItems.length" class="unmatched-list">
-          <strong>⚠️ 未匹配商品（建议新建规则覆盖）：</strong>
-          <div v-for="(item, i) in matchResult.unmatchedItems" :key="i" class="unmatched-item">
-            {{ item }}
-          </div>
-        </div>
+    <!-- ===== 商品信息预览弹窗 ===== -->
+    <el-dialog v-model="mappingPreviewVisible" title="商品信息预览" width="900px">
+      <div style="margin-bottom: 12px; color: #909399; font-size: 13px;">
+        拼接规则：{{ selectedFields.join(' + ') }}
       </div>
 
-      <!-- 下载 -->
-      <div v-if="downloadUrl" class="download-area">
-        <a :href="downloadUrl" :download="downloadFileName" class="btn btn-success btn-lg">
-          ⬇️ 下载编码结果文件
-        </a>
-        <p class="tip">文件已新增「产品详情」「匹配编码」「匹配状态」三列</p>
-      </div>
-    </section>
+    <el-table
+      :data="mappingPreviewRows"
+      border
+      height="450"
+      style="width: 100%;"
+    >
+      <!-- ✅ 原表行号 -->
+      <el-table-column
+        label="序号"
+        width="70"
+        align="center"
+        fixed="left"
+      >
+        <template #default="{ row }">
+          {{ row.__rowNo }}
+        </template>
+      </el-table-column>
 
-    <!-- 空状态提示 -->
-    <section v-if="!headers.length" class="section empty-state">
-      <p>请先上传商品文件开始操作</p>
-    </section>
+      <el-table-column
+        v-for="(field, index) in selectedFields"
+        :key="index"
+        :label="field"
+        width="180"
+      >
+        <template #default="{ row }">
+          {{ row[field] }}
+        </template>
+      </el-table-column>
+
+      <el-table-column label="商品信息" min-width="250">
+        <template #default="{ row }">
+          {{ row.__productInfo }}
+        </template>
+      </el-table-column>
+    </el-table>
+
+      <template #footer>
+        <el-button @click="mappingPreviewVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { UploadFilled, Document, Close } from '@element-plus/icons-vue'
+import Sortable from 'sortablejs'
 import * as XLSX from 'xlsx'
 
-// ==================== 响应式数据 ====================
-const fileInput = ref(null)
+/* ===== 上传模块状态 ===== */
+const uploadVisible = ref(false)
+const previewVisible = ref(false)
+const uploadRef = ref(null)
+
 const fileName = ref('')
-const headers = ref([])
-const rawData = ref([])
-const mappingFields = reactive([{ source: '' }, { source: '' }])
-const rules = reactive([])
-const showRuleEditor = ref(false)
-const editingIndex = ref(-1)
-const matching = ref(false)
-const matchResult = ref(null)
-const downloadUrl = ref('')
-const downloadFileName = ref('')
+const rawHeaders = ref([])
+const rawRows = ref([])
+const previewHeaders = ref([])
+const previewRows = ref([])
 
-let nextRuleId = 1
+const hasUploadedFile = computed(
+  () => !!fileName.value && rawHeaders.value.length > 0
+)
 
-// 规则表单
-const ruleForm = reactive({
-  conditions: [{ type: 'include', value: '' }],
-  sku: '',
-  priority: 100
-})
+/* ===== 商品信息定义状态 ===== */
+const selectedField = ref('')
+const selectedFields = ref([])
+const mappingPreviewVisible = ref(false)
+const mappingPreviewRows = ref([])
 
-// 在 <script setup> 中定义计算属性或方法
-const placeholderText = computed(() => {
-  if (cond.value.type === 'exclude') {
-    return `如：AI（表达"没有这个特征"）`;
-  } else {
-    return '请输入关键词';
-  }
-});
+/* ===== 可用字段（排除已选） ===== */
+const availableFields = computed(() =>
+  rawHeaders.value.filter(h => !selectedFields.value.includes(h))
+)
 
-// ==================== 文件上传 ====================
-function triggerUpload() {
-  fileInput.value.click()
+/* ===== 上传逻辑（不修改） ===== */
+const openUploadDialog = () => {
+  uploadVisible.value = true
 }
 
-function handleFileChange(e) {
-  const file = e.target.files[0]
-  if (file) loadFile(file)
+const handleExceed = (files) => {
+  uploadRef.value?.clearFiles()
+  uploadRef.value?.handleStart(files[0])
 }
 
-function handleDrop(e) {
-  const file = e.dataTransfer.files[0]
-  if (file) loadFile(file)
-}
-
-function loadFile(file) {
+const handleFileChange = (file) => {
   fileName.value = file.name
+  parseFile(file.raw)
+}
+
+const parseFile = (file) => {
+  const isCSV = file.name.toLowerCase().endsWith('.csv')
   const reader = new FileReader()
+
   reader.onload = (e) => {
-    const data = new Uint8Array(e.target.result)
-    const workbook = XLSX.read(data, { type: 'array' })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
-    headers.value = jsonData[0] || []
-    rawData.value = jsonData.slice(1).map((row, idx) => {
-      const obj = { _rowIndex: idx + 2 }
-      headers.value.forEach((h, i) => {
-        obj[h] = row[i] ?? ''
-      })
-      return obj
-    })
-  }
-  reader.readAsArrayBuffer(file)
-}
+    try {
+      let workbook
 
-function clearFile() {
-  fileName.value = ''
-  headers.value = []
-  rawData.value = []
-  mappingFields.splice(0, mappingFields.length, { source: '' }, { source: '' })
-  matchResult.value = null
-  downloadUrl.value = ''
-}
+      if (isCSV) {
+        let text = ''
+        try {
+          text = new TextDecoder('utf-8', { fatal: true }).decode(e.target.result)
+        } catch {
+          text = new TextDecoder('gbk').decode(e.target.result)
+        }
+        workbook = XLSX.read(text, { type: 'string' })
+      } else {
+        workbook = XLSX.read(e.target.result, { type: 'array', dense: true })
+      }
 
-// ==================== 字段映射 ====================
-function addMappingField() {
-  mappingFields.push({ source: '' })
-}
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false })
 
-function removeMappingField(idx) {
-  mappingFields.splice(idx, 1)
-}
+      if (!aoa.length) {
+        ElMessage.warning('文件内容为空')
+        return
+      }
 
-const previewRows = computed(() => {
-  if (!rawData.value.length) return []
-  return rawData.value.slice(0, 3).map(row => buildProductDetail(row))
-})
+      rawHeaders.value = aoa[0].map(v => (v == null ? '' : String(v)))
+      rawRows.value = aoa.slice(1).map(r => r.map(v => (v == null ? '' : String(v))))
 
-function buildProductDetail(row) {
-  return mappingFields
-    .filter(f => f.source)
-    .map(f => String(row[f.source] ?? '').trim())
-    .filter(Boolean)
-    .join(' ')
-}
+      previewHeaders.value = rawHeaders.value
+      previewRows.value = rawRows.value
 
-// ==================== 规则管理 ====================
-function openConditionEditor() {
-  // 重置表单
-  ruleForm.conditions = [{ type: 'include', value: '' }]
-  ruleForm.sku = ''
-  ruleForm.priority = rules.length ? Math.max(...rules.map(r => r.priority)) + 10 : 10
-  editingIndex.value = -1
-  showRuleEditor.value = true
-}
-
-function editRule(idx) {
-  const rule = rules[idx]
-  ruleForm.conditions = rule.conditions.map(c => ({ ...c }))
-  ruleForm.sku = rule.sku
-  ruleForm.priority = rule.priority
-  editingIndex.value = idx
-  showRuleEditor.value = true
-}
-
-function closeRuleEditor() {
-  showRuleEditor.value = false
-}
-
-function addCondition() {
-  ruleForm.conditions.push({ type: 'include', value: '' })
-}
-
-function removeCondition(idx) {
-  ruleForm.conditions.splice(idx, 1)
-}
-
-function saveRule() {
-  // 校验
-  if (!ruleForm.sku.trim()) {
-    alert('请输入商品编码')
-    return
-  }
-  if (ruleForm.conditions.some(c => !c.value.trim())) {
-    alert('请填写所有条件的关键词')
-    return
+      ElMessage.success('文件解析成功')
+    } catch {
+      ElMessage.error('文件解析失败')
+    }
   }
 
-  const conditions = ruleForm.conditions.map(c => ({
-    type: c.type,
-    value: c.value.split(/[,，]/).map(v => v.trim()).filter(Boolean)
-  }))
-
-  const newRule = {
-    id: nextRuleId++,
-    conditions,
-    sku: ruleForm.sku.trim(),
-    priority: ruleForm.priority
-  }
-
-  if (editingIndex.value >= 0) {
-    rules[editingIndex.value] = newRule
+  if (isCSV) {
+    reader.readAsArrayBuffer(file.slice(0, 1024 * 1024))
   } else {
-    rules.push(newRule)
-  }
-
-  // 按优先级排序
-  rules.sort((a, b) => a.priority - b.priority)
-  closeRuleEditor()
-}
-
-function deleteRule(idx) {
-  if (confirm('确定删除该编码条件吗？')) {
-    rules.splice(idx, 1)
+    reader.readAsArrayBuffer(file)
   }
 }
 
-function formatRuleCondition(rule) {
-  return rule.conditions.map(c => {
-    const label = { include: '包含', exclude: '不包含', color: '颜色', model: '型号' }[c.type]
-    return `${label}「${c.value.join('/')}」`
-  }).join(' 且 ')
+const removeFile = () => {
+  uploadRef.value?.clearFiles()
+  fileName.value = ''
+  rawHeaders.value = []
+  rawRows.value = []
+  previewHeaders.value = []
+  previewRows.value = []
 }
 
-// ==================== 匹配 & 导出 ====================
-function runMatch() {
-  if (!mappingFields.some(f => f.source)) {
-    alert('请先映射商品信息字段')
-    return
-  }
-  if (!rules.length) {
-    alert('请先添加编码规则')
-    return
-  }
+const confirmUpload = () => {
+  uploadVisible.value = false
+  ElMessage.success('文件上传成功')
+}
 
-  matching.value = true
-  matchResult.value = null
-  downloadUrl.value = ''
-
-  // 构建产品详情并匹配
-  const results = rawData.value.map(row => {
-    const detail = buildProductDetail(row)
-    const matchedRule = findMatchingRule(detail)
-    return {
-      ...row,
-      productDetail: detail,
-      matchSku: matchedRule ? matchedRule.sku : '',
-      matchStatus: matchedRule ? '匹配成功' : '未匹配'
+const handleDeleteConfirm = () => {
+  ElMessageBox.confirm(
+    '确定要删除该文件吗？删除后将无法预览，字段定义也会被清空，如需重新上传请点击下方按钮。',
+    '确认删除',
+    {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning'
     }
+  ).then(() => {
+    removeFile()
+    clearMapping() // 清空字段定义
+    ElMessage.success('文件已删除')
   })
-
-  const matched = results.filter(r => r.matchSku).length
-  const unmatched = results.length - matched
-  const unmatchedItems = results.filter(r => !r.matchSku).map(r => r.productDetail)
-
-  matchResult.value = {
-    total: results.length,
-    matched,
-    unmatched,
-    unmatchedItems
-  }
-
-  // 生成导出文件
-  generateExportFile(results)
-  matching.value = false
 }
 
-function findMatchingRule(detail) {
-  const text = detail.toLowerCase()
-  for (const rule of rules) {
-    const passed = rule.conditions.every(cond => {
-      const keywords = cond.value.map(k => k.toLowerCase())
-      if (cond.type === 'include') {
-        return keywords.some(k => text.includes(k))
-      } else if (cond.type === 'exclude') {
-        return !keywords.some(k => text.includes(k))
-      } else if (cond.type === 'color') {
-        return keywords.some(k => text.includes(k))
-      } else if (cond.type === 'model') {
-        return keywords.some(k => text.includes(k))
-      }
-      return true
+const previewFile = () => {
+  if (!rawRows.value.length) {
+    ElMessage.warning('暂无文件数据')
+    return
+  }
+  previewVisible.value = true
+}
+
+/* ===== 商品信息定义逻辑 ===== */
+
+// 添加字段
+const addField = (field) => {
+  if (!field) return
+  if (selectedFields.value.includes(field)) {
+    ElMessage.warning('该字段已添加')
+    selectedField.value = ''
+    return
+  }
+  selectedFields.value.push(field)
+  selectedField.value = ''
+  enableDrag() // 重新绑定拖拽
+}
+
+// 移除字段
+const removeField = (index) => {
+  selectedFields.value.splice(index, 1)
+  nextTick(enableDrag)
+}
+
+// 清空定义
+const clearMapping = () => {
+  selectedFields.value = []
+  selectedField.value = ''
+}
+
+// 拼接商品信息
+const buildProductInfo = (row) => {
+  return selectedFields.value
+    .map(fieldName => {
+      const colIndex = rawHeaders.value.indexOf(fieldName)
+      if (colIndex === -1) return ''
+      return (row[colIndex] ?? '').toString().trim()
     })
-    if (passed) return rule
-  }
-  return null
+    .join('')
 }
 
-function generateExportFile(results) {
-  const exportHeaders = [...headers.value, '产品详情', '匹配编码', '匹配状态']
-  const data = results.map(row => {
-    const arr = []
-    headers.value.forEach(h => arr.push(row[h] ?? ''))
-    arr.push(row.productDetail, row.matchSku, row.matchStatus)
-    return arr
+// 预览
+const previewMapping = () => {
+  if (selectedFields.value.length === 0) {
+    ElMessage.warning('请至少选择一个字段')
+    return
+  }
+
+  mappingPreviewRows.value = rawRows.value
+  .slice(0, 20)
+  .map((row, rowIndex) => {
+    const obj = {
+      __rowNo: rowIndex + 1 // ✅ 原表真实行号
+    }
+    selectedFields.value.forEach(field => {
+      obj[field] = row[rawHeaders.value.indexOf(field)]
+    })
+    obj.__productInfo = buildProductInfo(row)
+    return obj
   })
 
-  const ws = XLSX.utils.aoa_to_sheet([exportHeaders, ...data])
-
-  // 设置列宽
-  ws['!cols'] = exportHeaders.map((h, i) => ({
-    wch: i >= headers.value.length ? 20 : 15
-  }))
-
-  // 表头样式
-  const headerRange = XLSX.utils.decode_range(ws['!ref'])
-  for (let C = headerRange.s.c; C <= headerRange.e.c; C++) {
-    const cell = ws[XLSX.utils.encode_cell({ r: 0, c: C })]
-    if (cell) {
-      cell.s = {
-        font: { bold: true, color: { rgb: 'FFFFFF' } },
-        fill: { fgColor: { rgb: '4472C4' } },
-        alignment: { horizontal: 'center' }
-      }
-    }
-  }
-
-  // 匹配状态列样式
-  const statusCol = exportHeaders.indexOf('匹配状态')
-  for (let R = 1; R <= data.length; R++) {
-    const cell = ws[XLSX.utils.encode_cell({ r: R, c: statusCol })]
-    if (cell) {
-      cell.s = cell.v === '匹配成功'
-        ? { font: { color: { rgb: '008000' }, bold: true } }
-        : { font: { color: { rgb: 'FF0000' }, bold: true } }
-    }
-  }
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '商品编码结果')
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  downloadUrl.value = URL.createObjectURL(blob)
-  downloadFileName.value = fileName.value.replace(/\.[^/.]+$/, '') + '_已编码.xlsx'
+  mappingPreviewVisible.value = true
 }
+
+// 确认定义
+const confirmMapping = () => {
+  if (selectedFields.value.length === 0) {
+    ElMessage.warning('请至少选择一个字段')
+    return
+  }
+
+  // 为所有行生成商品信息
+  rawRows.value.forEach(row => {
+    row.__productInfo = buildProductInfo(row)
+  })
+
+  ElMessage.success('商品信息定义完成')
+  // TODO: 激活「添加编码」按钮
+}
+
+/* ===== 拖拽排序 ===== */
+let sortableInstance = null
+
+const enableDrag = () => {
+  nextTick(() => {
+    const container = document.querySelector('.selected-fields')
+    if (!container) return
+
+    // 销毁旧实例
+    if (sortableInstance) {
+      sortableInstance.destroy()
+      sortableInstance = null
+    }
+
+    sortableInstance = Sortable.create(container, {
+      animation: 200,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      dragClass: 'sortable-drag',
+      // ✅ 关键：禁止 Sortable 自己操作 DOM，让 Vue 接管
+      draggable: '.field-tag',
+      onEnd({ newIndex, oldIndex }) {
+        if (newIndex === oldIndex) return
+
+        // ✅ 先让 Sortable 还原 DOM（不操作 DOM，只同步数据）
+        const item = selectedFields.value.splice(oldIndex, 1)[0]
+        selectedFields.value.splice(newIndex, 0, item)
+
+        // ✅ 强制 Vue 重新渲染，避免空白节点残留
+        nextTick(() => {
+          enableDrag()
+        })
+      }
+    })
+  })
+}
+
+// 组件卸载时清理
+onMounted(() => {
+  // 初始化
+})
 </script>
 
 <style scoped>
-.page {
-  background: #fff;
-  padding: 24px;
+/* ✅ 与 ConsistencyPage 完全一致 */
+.product-code-page {
+  padding: 10px;
+}
+
+.upload-card {
   border-radius: 8px;
-  max-width: 1100px;
-  margin: 0 auto;
+  background-color: #fff;
 }
 
-.section {
-  margin-bottom: 32px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #eee;
-}
-
-.section:last-child {
-  border-bottom: none;
-}
-
-h3 {
-  margin: 0 0 12px 0;
-  font-size: 18px;
-}
-
-h4 {
-  margin: 0 0 16px 0;
-}
-
-.tip {
-  font-size: 12px;
-  color: #888;
-  margin-top: 4px;
-}
-
-.empty-state {
-  text-align: center;
-  color: #999;
-  padding: 48px 0;
-}
-
-/* 上传区域 */
-.upload-area {
-  border: 2px dashed #ccc;
-  border-radius: 8px;
-  padding: 40px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.upload-area:hover {
-  border-color: #4472C4;
-}
-
-.upload-placeholder p {
-  margin: 4px 0;
-  color: #666;
-}
-
-.upload-info {
+.card-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-
-/* 字段映射 */
-.field-mapping {
-  margin-top: 12px;
-}
-
-.mapping-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.mapping-row select {
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  min-width: 200px;
-}
-
-.separator {
-  font-weight: bold;
-  font-size: 18px;
-  color: #666;
-}
-
-.preview {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f5f5f5;
-  border-radius: 6px;
-}
-
-.preview-row {
-  padding: 4px 0;
-  font-family: monospace;
-  font-size: 13px;
-}
-
-/* 规则表格 */
-.rule-table-wrapper {
-  overflow-x: auto;
-}
-
-.rule-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.rule-table th,
-.rule-table td {
-  border: 1px solid #ddd;
-  padding: 10px 12px;
-  text-align: left;
-}
-
-.rule-table th {
-  background: #f0f4f8;
-  font-weight: 600;
-}
-
-.center {
-  text-align: center;
-}
-
-.rule-actions {
-  margin-top: 12px;
-}
-
-/* 条件编辑器 */
-.condition-editor {
   margin-bottom: 16px;
 }
 
-.condition-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.condition-row select {
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.condition-row input {
-  flex: 1;
-  min-width: 250px;
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.cond-tip {
-  width: 100%;
-  font-size: 12px;
-  color: #666;
-  margin-top: 2px;
-  padding-left: 4px;
-}
-
-.example-box {
-  background: #f0f7ff;
-  border: 1px solid #b3d4fc;
-  border-radius: 6px;
-  padding: 12px;
+/* ===== 已上传文件区域 ===== */
+.uploaded-file-area {
   margin-top: 16px;
-}
-
-.example-content {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-.example-content code {
-  background: #e8e8e8;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-}
-
-.example-note {
-  color: #4472C4;
-  font-weight: 500;
-  margin-top: 4px;
-}
-
-/* 按钮 */
-.btn {
-  padding: 8px 16px;
-  border: none;
+  padding: 12px 16px;
+  background-color: #f5f7fa;
   border-radius: 6px;
-  cursor: pointer;
+  border: 1px solid #ebeef5;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-size: 14px;
-  transition: opacity 0.2s;
+  color: #303133;
 }
 
-.btn:hover {
-  opacity: 0.85;
-}
-
-.btn-primary {
-  background: #4472C4;
-  color: #fff;
-}
-
-.btn-success {
-  background: #28a745;
-  color: #fff;
-}
-
-.btn-danger {
-  background: #dc3545;
-  color: #fff;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.btn-outline {
-  background: #fff;
-  border: 1px solid #ccc;
-  color: #333;
-}
-
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.btn-lg {
-  padding: 12px 28px;
+.file-icon {
+  color: #909399;
   font-size: 16px;
 }
 
-/* 弹窗 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.file-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  gap: 16px;
 }
 
-.modal {
-  background: #fff;
-  border-radius: 10px;
-  padding: 24px;
-  width: 600px;
-  max-width: 90vw;
-  max-height: 85vh;
-  overflow-y: auto;
+.delete-btn {
+  color: #909399;
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.3s;
 }
 
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
+.delete-btn:hover {
+  color: #f56c6c;
 }
 
-/* 表单 */
-.form-item {
-  margin-bottom: 16px;
-}
-
-.form-item label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-
-.form-item input {
+/* 上传弹窗 */
+.file-uploader {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  box-sizing: border-box;
 }
 
-/* 匹配结果 */
-.match-result {
-  margin-top: 16px;
-}
-
-.result-summary {
-  display: flex;
-  gap: 24px;
-  margin-bottom: 16px;
-}
-
-.result-item {
-  text-align: center;
-  padding: 12px 24px;
+.file-uploader :deep(.el-upload-dragger) {
+  padding: 30px;
+  border: 2px dashed #dcdfe6;
   border-radius: 8px;
-  background: #f5f5f5;
+  transition: border-color 0.3s;
 }
 
-.result-item .label {
-  display: block;
-  font-size: 12px;
-  color: #666;
+.file-uploader :deep(.el-upload-dragger:hover) {
+  border-color: #409EFF;
 }
 
-.result-item .value {
-  display: block;
-  font-size: 28px;
-  font-weight: 700;
+.upload-file-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  margin-top: 8px;
 }
 
-.result-item.success .value {
-  color: #28a745;
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.result-item.warning .value {
-  color: #dc3545;
-}
-
-.unmatched-list {
-  background: #fff8f0;
-  border: 1px solid #ffd8b0;
+/* ===== 商品信息定义区域 ===== */
+.selected-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  min-height: 40px;
+  border: 1px dashed #dcdfe6;
   border-radius: 6px;
-  padding: 12px;
-  margin-top: 12px;
-  max-height: 200px;
-  overflow-y: auto;
+  background-color: #fafafa;
 }
 
-.unmatched-item {
-  padding: 3px 0;
-  font-size: 13px;
-  font-family: monospace;
+.field-tag {
+  margin: 2px 4px;
 }
 
-.download-area {
-  margin-top: 20px;
-  text-align: center;
+/* 拖拽样式 */
+:global(.sortable-ghost) {
+  opacity: 0.4;
+  background: #e8f4fd;
+}
+
+:global(.sortable-chosen) {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+:global(.sortable-drag) {
+  opacity: 0.8;
 }
 </style>
