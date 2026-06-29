@@ -73,8 +73,6 @@ const currentTitle = computed(() => {
 /* 左侧 */
 .sidebar {
   width: 220px;
-  /* background: #fcfdfd; */
-  color: #fff;
 }
 
 .logo {
@@ -87,40 +85,30 @@ const currentTitle = computed(() => {
   border-bottom: 3px solid #727c88;
 }
 
-.menu {
-  border-right: none;
-  background: transparent;
-}
-
 /* 右侧 */
 .main {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: #f0f2f5;
-}
-
-/* Header */
-.header {
-  height: 60px;
-  background: #fff;
-  padding: 0 24px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-}
-
-.title {
-  font-size: 18px;
-  font-weight: 600;
-  margin-top: 2px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 内容区 */
 .content {
   flex: 1;
   padding: 15px;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+/* 纯CSS单独写滚动条样式 */
+.content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 </style>
