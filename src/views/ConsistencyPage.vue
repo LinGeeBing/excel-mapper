@@ -1185,33 +1185,6 @@ const cancelFieldMatch = () => {
   fieldMatchVisible.value = false
 }
 
-/* ✅ 确认字段匹配 */
-const confirmFieldMatch = () => {
-  const miss = fieldMatchList.value.find(
-    f => f.required && !f.sourceValue?.trim()
-  )
-
-  if (miss) {
-    ElMessage.warning(`"${miss.templateField}"为必填字段，请完成匹配`)
-    return
-  }
-
-  const result = generateMappedData()
-
-  if (editingRecord.value) {
-    editingRecord.value.result = result
-    editingRecord.value.name = sourceTableName.value || editingRecord.value.name
-    editingRecord.value.time = getCurrentTime()
-    editingRecord.value = null
-    ElMessage.success('编辑完成')
-  } else {
-    addSourceRecord(result)
-    ElMessage.success('字段匹配完成')
-  }
-
-  fieldMatchVisible.value = false
-}
-
 /* ✅ 生成映射数据 */
 const generateMappedData = () => {
   const headers = fieldMatchList.value.map(f => f.templateField)
@@ -1254,16 +1227,6 @@ const getCurrentTime = () => {
   })
 }
 
-/* ✅ 添加原表记录 */
-const addSourceRecord = (result) => {
-  sourceTableData.value.push({
-    id: Date.now(),
-    name: sourceTableName.value || '未命名原表',
-    templateId: selectedTemplateId.value,
-    time: getCurrentTime(),
-    result
-  })
-}
 
 const handleSourceSelectionChange = (selection) => {
   selectedSourceRecords.value = selection
@@ -1308,37 +1271,44 @@ const exportSingle = (row) => {
 /* ✅ 编辑记录（✅ 回显 sourceValue） */
 const editingRecord = ref(null)
 
+import cloneDeep from 'lodash/cloneDeep'
+// 或者自己写 JSON.parse(JSON.stringify())
+
+const confirmFieldMatch = () => {
+  const miss = fieldMatchList.value.find(
+    f => f.required && !f.sourceValue?.trim()
+  )
+  if (miss) {
+    ElMessage.warning(`"${miss.templateField}"为必填字段`)
+    return
+  }
+
+  const result = generateMappedData()
+
+  if (editingRecord.value) {
+    editingRecord.value.name = sourceTableName.value
+    editingRecord.value.time = getCurrentTime()
+    editingRecord.value.fieldMatch = cloneDeep(fieldMatchList.value)
+    editingRecord.value.result = result
+    editingRecord.value = null
+  } else {
+    sourceTableData.value.push({
+      id: Date.now(),
+      name: sourceTableName.value || '未命名原表',
+      templateId: selectedTemplateId.value,
+      time: getCurrentTime(),
+      fieldMatch: cloneDeep(fieldMatchList.value),
+      result
+    })
+  }
+
+  fieldMatchVisible.value = false
+}
+
 const editRecord = (row) => {
   editingRecord.value = row
   sourceTableName.value = row.name
-
-  fieldMatchList.value = row.result.headers.map((h, i) => ({
-    templateField: h,
-    required: activeTemplate.value?.requiredFields?.includes(h) || false,
-    sourceValue: '',
-    _dropdownOpen: false,
-    _searchText: ''
-  }))
-
-  const firstRow = row.result.rows[0] || []
-  fieldMatchList.value.forEach((f, i) => {
-    const cellVal = (firstRow[i] || '').toString().trim()
-    if (!cellVal) return
-
-    // 尝试回显字段
-    for (const srcField of sourceHeaders.value) {
-      const colIdx = sourceHeaders.value.indexOf(srcField)
-      const srcVal = sourceRows.value[0]?.[colIdx]
-      if (srcVal === cellVal) {
-        f.sourceValue = `{${srcField}}`
-        return
-      }
-    }
-
-    // 否则当作常量
-    f.sourceValue = cellVal
-  })
-
+  fieldMatchList.value = cloneDeep(row.fieldMatch)
   fieldMatchVisible.value = true
 }
 
@@ -1391,7 +1361,10 @@ const handleMergeTables = async () => {
       name: mergeName,
       templateId: selectedTemplateId.value,
       time: getCurrentTime(),
-      result: { headers, rows: mergedRows }
+      result: {
+        headers,
+        rows: mergedRows
+      }
     })
 
     ElMessage.success('合并完成')
