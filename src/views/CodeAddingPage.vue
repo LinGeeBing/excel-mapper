@@ -699,7 +699,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   UploadFilled, Document, Close, Plus, Search
@@ -708,7 +708,12 @@ import Sortable from 'sortablejs'
 import * as XLSX from 'xlsx'
 
 /* ========================================================
-   模块一 & 模块二（原有代码，不做任何修改）
+   localStorage key（仅用于商品编码规则）
+   ======================================================== */
+const CODE_RULES_STORAGE_KEY = 'PRODUCT_CODE_RULES'
+
+/* ========================================================
+   模块一 & 模块二（上传 / 字段定义，不做业务变更）
    ======================================================== */
 const uploadVisible = ref(false)
 const previewVisible = ref(false)
@@ -775,9 +780,9 @@ const parseFile = (file) => {
         return
       }
 
-      // ✅ 过滤全空行
       const filtered = aoa.filter(row =>
-        Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '')
+        Array.isArray(row) &&
+        row.some(cell => cell !== null && cell !== undefined && cell.toString().trim() !== '')
       )
 
       rawHeaders.value = (filtered[0] || []).map(v => (v == null ? '' : String(v)))
@@ -876,15 +881,11 @@ const previewMapping = () => {
   }
 
   mappingPreviewRows.value = rawRows.value.map((row, rowIndex) => {
-    const obj = {
-      __rowNo: rowIndex + 1
-    }
-
+    const obj = { __rowNo: rowIndex + 1 }
     selectedFields.value.forEach(field => {
       const colIndex = rawHeaders.value.indexOf(field)
       obj[field] = colIndex >= 0 ? (row[colIndex] ?? '') : ''
     })
-
     obj.__productInfo = buildProductInfo(row)
     return obj
   })
@@ -923,24 +924,50 @@ const enableDrag = () => {
       chosenClass: 'sortable-chosen',
       dragClass: 'sortable-drag',
       draggable: '.field-tag',
-      onEnd({ newIndex, oldIndex }) {
+      onEnd ({ newIndex, oldIndex }) {
         if (newIndex === oldIndex) return
         const item = selectedFields.value.splice(oldIndex, 1)[0]
         selectedFields.value.splice(newIndex, 0, item)
-        nextTick(() => {
-          enableDrag()
-        })
+        nextTick(enableDrag)
       }
     })
   })
 }
 
 /* ========================================================
-   模块三：商品编码表（已有功能，不做任何修改）
+   模块三：商品编码表（✅ 自动持久化）
    ======================================================== */
 let ruleIdCounter = 0
 
-const codeRules = ref([])
+/* ✅ 初始化时从 localStorage 读取 */
+const loadCodeRules = () => {
+  try {
+    const raw = localStorage.getItem(CODE_RULES_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.length) {
+      ruleIdCounter = Math.max(...parsed.map(r => r.id || 0))
+    }
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+const codeRules = ref(loadCodeRules())
+
+/* ✅ 自动监听并持久化（核心） */
+watch(
+  codeRules,
+  (val) => {
+    try {
+      localStorage.setItem(CODE_RULES_STORAGE_KEY, JSON.stringify(val))
+    } catch {
+      // ignore
+    }
+  },
+  { deep: true }
+)
 
 const codeSearchKeyword = ref('')
 
@@ -980,7 +1007,7 @@ const focusInput = (gIdx, vIdx) => {
     const key = `${gIdx}_${vIdx}`
     const el = inputRefs.value.get(key)
     if (el) {
-      const input = el.$el?.querySelector('input') || el.querySelector?.('input') || el
+      const input = el.$el?.querySelector('input') || el.querySelector('input') || el
       input?.focus()
     }
   })
@@ -1025,18 +1052,14 @@ const editInput = (val, orValues, isFirst, event) => {
 
 const onInputConfirm = (val, orValues, isFirst) => {
   if (!val.text.trim()) {
-    if (!isFirst) {
-      orValues.splice(orValues.indexOf(val), 1)
-    }
+    if (!isFirst) orValues.splice(orValues.indexOf(val), 1)
   }
   val.isEditing = false
 }
 
 const onInputBlur = (val, orValues, isFirst) => {
   if (!val.text.trim()) {
-    if (!isFirst) {
-      orValues.splice(orValues.indexOf(val), 1)
-    }
+    if (!isFirst) orValues.splice(orValues.indexOf(val), 1)
   }
   val.isEditing = false
 }
@@ -1045,32 +1068,13 @@ const removeOrValue = (orValues, vIdx) => {
   orValues.splice(vIdx, 1)
 }
 
-// ✅ 空大框自动销毁（规格/关键词）
-const cleanupEmptyGroup = (groupsType) => {
-  if (groupsType === 'category') return // 品类不清理
-  codeForm.value[groupsType] = codeForm.value[groupsType].filter(
-    g => g.orValues.some(v => (v.text || '').trim())
-  )
-}
-
-// ✅ 在 onInputBlur 和 removeOrValue 后调用清理
-const onInputBlurWithCleanup = (val, orValues, isFirst, groupsType) => {
-  onInputBlur(val, orValues, isFirst)
-  nextTick(() => cleanupEmptyGroup(groupsType))
-}
-
-const removeOrValueWithCleanup = (orValues, vIdx, groupsType) => {
-  removeOrValue(orValues, vIdx)
-  nextTick(() => cleanupEmptyGroup(groupsType))
-}
-
-const collectValues = (groups, fieldName) => {
+const collectValues = (groups) => {
   const result = []
   for (const g of groups) {
     const values = g.orValues
       .map(v => (v.text || '').trim())
       .filter(Boolean)
-    if (values.length > 0) {
+    if (values.length) {
       result.push({
         values,
         negate: g.negate || false
@@ -1204,9 +1208,9 @@ const saveCodeRule = () => {
     return
   }
 
-  const categoryGroups = collectValues(form.categoryGroups, '品类')
-  const specGroups = collectValues(form.specGroups, '规格')
-  const keywordGroups = collectValues(form.keywordGroups, '关键词')
+  const categoryGroups = collectValues(form.categoryGroups)
+  const specGroups = collectValues(form.specGroups)
+  const keywordGroups = collectValues(form.keywordGroups)
 
   const payload = {
     code: form.code.trim(),
@@ -1239,14 +1243,11 @@ const cancelCodeDialog = () => {
   inputRefs.value.clear()
 }
 
-const filterCodeTable = () => {
-  // 由 computed 自动响应
-}
+const filterCodeTable = () => {}
 
 /* ========================================================
-   模块四：添加编码（新增功能）
+   模块四：添加编码（不变）
    ======================================================== */
-
 const matchResults = ref([])
 const matchSummary = ref(null)
 const resultFilter = ref('all')
@@ -1277,29 +1278,20 @@ const filteredResults = computed(() => {
 })
 
 const matchRule = (rule, productInfo) => {
-  // 1️⃣ 品类（AND 组）
   for (const group of rule.categoryGroups) {
-    const hit = group.values.some(v => productInfo.includes(v))
-    if (!hit) return false
+    if (!group.values.some(v => productInfo.includes(v))) return false
   }
 
-  // 2️⃣ 规格（可选）
   if (rule.specGroups.length > 0) {
     for (const group of rule.specGroups) {
-      const hit = group.values.some(v => productInfo.includes(v))
-      if (!hit) return false
+      if (!group.values.some(v => productInfo.includes(v))) return false
     }
   }
 
-  // 3️⃣ 关键词（可选）
   if (rule.keywordGroups.length > 0) {
     for (const group of rule.keywordGroups) {
       const hit = group.values.some(v => productInfo.includes(v))
-      if (group.negate) {
-        if (hit) return false
-      } else {
-        if (!hit) return false
-      }
+      if (group.negate ? hit : !hit) return false
     }
   }
 
@@ -1335,13 +1327,10 @@ const startAddCode = () => {
 
     for (const rule of codeRules.value) {
       try {
-        const isMatch = matchRule(rule, productInfo)
-        if (isMatch) {
+        if (matchRule(rule, productInfo)) {
           hitCodes.push(rule.code)
         }
-      } catch {
-        // 单条规则匹配异常不影响整体
-      }
+      } catch {}
     }
 
     const fieldValues = {}
@@ -1385,27 +1374,22 @@ const startAddCode = () => {
 
   matchResults.value = results
 
-  const total = results.length
-  const matched = results.filter(r => r.matched && !r.duplicated).length
-  const unmatched = results.filter(r => !r.matched).length
-  const duplicated = results.filter(r => r.duplicated).length
-
   matchSummary.value = {
-    total,
-    matched,
-    unmatched,
-    duplicated,
-    hasError: unmatched > 0 || duplicated > 0
+    total: results.length,
+    matched: results.filter(r => r.matched && !r.duplicated).length,
+    unmatched: results.filter(r => !r.matched).length,
+    duplicated: results.filter(r => r.duplicated).length,
+    hasError: results.some(r => !r.matched || r.duplicated)
   }
 
   resultFilter.value = 'all'
 
-  if (duplicated > 0) {
-    ElMessage.warning(`匹配完成：${matched} 条成功，${unmatched} 条未命中，${duplicated} 条重复命中`)
-  } else if (unmatched > 0) {
-    ElMessage.warning(`匹配完成：${matched} 条成功，${unmatched} 条未命中`)
+  if (matchSummary.value.duplicated > 0) {
+    ElMessage.warning(`匹配完成：${matchSummary.value.matched} 条成功，${matchSummary.value.unmatched} 条未命中，${matchSummary.value.duplicated} 条重复命中`)
+  } else if (matchSummary.value.unmatched > 0) {
+    ElMessage.warning(`匹配完成：${matchSummary.value.matched} 条成功，${matchSummary.value.unmatched} 条未命中`)
   } else {
-    ElMessage.success(`全部 ${total} 条商品信息匹配成功！`)
+    ElMessage.success(`全部 ${matchSummary.value.total} 条商品信息匹配成功！`)
   }
 }
 
@@ -1438,7 +1422,10 @@ const exportResults = () => {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '编码结果')
 
-    XLSX.writeFile(wb, `商品编码结果_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.xlsx`)
+    XLSX.writeFile(
+      wb,
+      `商品编码结果_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.xlsx`
+    )
     ElMessage.success('导出成功')
   } catch {
     ElMessage.error('导出失败')
